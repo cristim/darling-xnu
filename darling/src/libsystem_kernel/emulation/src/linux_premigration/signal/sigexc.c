@@ -361,6 +361,31 @@ void sigexc_handler(int linux_signum, struct linux_siginfo* info, struct linux_u
 
 	kern_printf("sigexc_handler(%d, %p, %p)\n", linux_signum, info, ctxt);
 
+	// Capture the interrupted context for a fatal signal. A coredump cannot do this: the handler runs
+	// on the alternate signal stack, so by the time the process dies the guest's own stack is gone and
+	// the recorded sp points into the alt stack. Here we still hold the ucontext the kernel built, so
+	// rip is the faulting guest PC, rsp is the real guest stack, and on aarch64 cr2 is the faulting
+	// address. Printed with __simple_printf rather than kern_printf so it reaches the application's
+	// own output, which is where whoever is debugging an app will be looking.
+#if defined(__aarch64__) || defined(__arm64__)
+	if (ctxt && (linux_signum == LINUX_SIGSEGV || linux_signum == LINUX_SIGBUS ||
+	             linux_signum == LINUX_SIGILL || linux_signum == LINUX_SIGFPE ||
+	             linux_signum == LINUX_SIGABRT || linux_signum == LINUX_SIGTRAP))
+	{
+		const struct linux_gregset* g = &ctxt->uc_mcontext.gregs;
+		__simple_printf("sigexc: fatal signal %d, guest pc=0x%llx sp=0x%llx fault_addr=0x%llx\n",
+			linux_signum, (unsigned long long) g->pc, (unsigned long long) g->sp,
+			(unsigned long long) g->fault_address);
+		// The first words of the interrupted stack name the caller. The guest runs on a host
+		// thread, so this mixes guest and host frames; the guest ones are identifiable by
+		// mapping them through the core dump, and the rest are the host's own frames.
+		__simple_printf("sigexc: stack words:");
+		for (int i = 0; i < 24; i++)
+			__simple_printf(" 0x%llx", (unsigned long long) *(unsigned long long *)(g->sp + i * 8));
+		__simple_printf("\n");
+	}
+#endif
+
 	// DARLING-DBG: capture SIGSYS details (bad syscall number, code, call addr)
 	if (linux_signum == LINUX_SIGSYS && info)
 	{
