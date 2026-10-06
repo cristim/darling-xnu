@@ -206,6 +206,6 @@ sysctl_handler(handle_cachelinesize)
 	// (osfmk/arm64/proc_reg.h), i.e. 64 bytes on arm64; on arm, MMU_CLINE is 6 for
 	// the same reason (osfmk/arm/proc_reg.h).
 	sysctl_handle_size(sizeof(unsigned long long));
-	*((unsigned long long*) old) = 64;
+	*((unsigned long long*) old) = 128;
 	return 0;
 }
