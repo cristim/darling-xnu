@@ -174,6 +174,12 @@ sysctl_handler(handle_cpufrequency)
 	int freq = 2400000;
 	char buf[16];
 
+	// This handler was the only one in sysctls_hw[] that skipped sysctl_handle_size. Every
+	// other handler calls it first precisely to answer a size query (old == NULL); without
+	// it a size query fell through to the store below and wrote through a NULL pointer, which
+	// does not fault cleanly here - the guest simply never returned.
+	sysctl_handle_size(sizeof(int));
+
 	if (read_string("/sys/bus/cpu/devices/cpu0/cpufreq/cpuinfo_max_freq", buf, sizeof(buf)))
 		freq = __simple_atoi(buf, NULL);
 	*((int*) old) = freq;
