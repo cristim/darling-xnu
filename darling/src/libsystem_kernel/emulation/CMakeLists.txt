@@ -142,6 +142,9 @@ set(xnu_syscall_bsd_sources
 	src/xnu_syscall/bsd/impl/guarded/guarded_close_np.c
 	src/xnu_syscall/bsd/impl/guarded/guarded_kqueue_np.c
 	src/xnu_syscall/bsd/impl/guarded/guarded_open_np.c
+	src/xnu_syscall/bsd/impl/guarded/guarded_pwrite_np.c
+	src/xnu_syscall/bsd/impl/guarded/guarded_write_np.c
+	src/xnu_syscall/bsd/impl/guarded/guarded_writev_np.c
 	src/xnu_syscall/bsd/impl/hfs/stub.c
 	src/xnu_syscall/bsd/impl/ioctl/ioctl.c
 	src/xnu_syscall/bsd/impl/kqueue/kevent.c

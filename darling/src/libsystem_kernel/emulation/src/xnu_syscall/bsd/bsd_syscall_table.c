@@ -28,6 +28,9 @@
 #include <darling/emulation/xnu_syscall/bsd/impl/guarded/guarded_close_np.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/guarded/guarded_kqueue_np.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/guarded/guarded_open_np.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/guarded/guarded_pwrite_np.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/guarded/guarded_write_np.h>
+#include <darling/emulation/xnu_syscall/bsd/impl/guarded/guarded_writev_np.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/hfs/stub.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/ioctl/ioctl.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/kqueue/kevent.h>
@@ -498,6 +501,9 @@ void* __bsd_syscall_table[600] = {
 	[476] = sys_getattrlistat,
 	[478] = sys_bsdthread_ctl,
 	[483] = sys_csrctl,
+	[485] = sys_guarded_write_np,
+	[486] = sys_guarded_pwrite_np,
+	[487] = sys_guarded_writev_np,
 	[500] = sys_getentropy,
 	[515] = sys_ulock_wait,
 	[516] = sys_ulock_wake,
