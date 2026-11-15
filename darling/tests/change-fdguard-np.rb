@@ -18,6 +18,8 @@ program = <<~C
       if (cmd == F_SETFD) { if (fd == 1) return -EIO; cloexec[fd] = (int)arg; return 0; }
       return -EINVAL;
   }
+  static int guard_table_user_set(int fd, uint64_t guard, unsigned int attrs) { (void)fd; (void)guard; (void)attrs; return 0; }
+  static void guard_table_user_clear(int fd) { (void)fd; }
   #{defs}
   #{body}
   #define GF (GUARD_CLOSE | GUARD_DUP)

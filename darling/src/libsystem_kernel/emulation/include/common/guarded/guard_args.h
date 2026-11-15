@@ -16,18 +16,12 @@
 // FUTEX_WAIT | FUTEX_PRIVATE_FLAG
 #define DARLING_FUTEX_WAIT_PRIVATE 128
 
-// Returns 0 or a negative BSD errno, in the order XNU checks: guardflags must include GUARD_DUP and
-// no unknown bit (EINVAL), the guard must be readable (EFAULT) and must not be zero (EINVAL).
-// The guard is only read. Readability stands in for XNU's copyin: a futex wait with a zero timeout
-// reads the word without side effects and fails with EFAULT on an unmapped or PROT_NONE page
-// (any other result means the word could be read). futex is allowed by container seccomp profiles,
-// unlike process_vm_readv. futex needs a 4-byte aligned word, so each half of the guard is probed;
-// a misaligned guard skips the probe and faults on the read below. Callers include
-// <darling/emulation/common/base.h> and the linux syscall numbers first.
-static inline long guard_args_validate(const uint64_t* guardid, unsigned int guardflags)
+// Returns 0 if the guard can be read and -EFAULT if it cannot (NULL included): readability stands in for XNU's
+// copyin, probed with a zero-timeout futex wait on each aligned half (no side effect, allowed by container seccomp);
+// a misaligned guard skips the probe. Callers include <darling/emulation/common/base.h> and the linux syscall
+// numbers first.
+static inline long guard_args_readable(const uint64_t* guardid)
 {
-	if ((guardflags & DARLING_GUARDFLAG_DUP) == 0 || (guardflags & ~DARLING_GUARDFLAG_ALL) != 0)
-		return -EINVAL;
 	if (!guardid)
 		return -EFAULT;
 	if (((uintptr_t) guardid & 3) == 0)
@@ -40,6 +34,19 @@ static inline long guard_args_validate(const uint64_t* guardid, unsigned int gua
 				return -EFAULT;
 		}
 	}
+	return 0;
+}
+
+// Returns 0 or a negative BSD errno, in the order XNU checks: guardflags must include GUARD_DUP and
+// no unknown bit (EINVAL), the guard must be readable (EFAULT) and must not be zero (EINVAL).
+// The guard is only read.
+static inline long guard_args_validate(const uint64_t* guardid, unsigned int guardflags)
+{
+	if ((guardflags & DARLING_GUARDFLAG_DUP) == 0 || (guardflags & ~DARLING_GUARDFLAG_ALL) != 0)
+		return -EINVAL;
+	long error = guard_args_readable(guardid);
+	if (error)
+		return error;
 	if (*(const volatile uint64_t*) guardid == 0)
 		return -EINVAL;
 	return 0;

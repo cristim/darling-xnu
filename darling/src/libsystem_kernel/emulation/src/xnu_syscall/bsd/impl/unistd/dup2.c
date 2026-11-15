@@ -32,7 +32,12 @@ long sys_dup2(int fd_from, int fd_to)
 	if (ret < 0)
 		ret = errno_linux_to_bsd(ret);
 	else
+	{
+		// the descriptor that fd_to named is closed, and its guard with it
+		if (fd_from != fd_to)
+			guard_table_user_clear(fd_to);
 		kqueue_dup(fd_from, fd_to);
+	}
 
 	return ret;
 }

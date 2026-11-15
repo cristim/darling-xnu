@@ -37,6 +37,7 @@ set(other_sources
 )
 
 set(common_sources
+	src/common/guarded/guarded_fd.c
 	src/common/guarded/table.c
 	src/common/base.c
 	src/common/simple.c

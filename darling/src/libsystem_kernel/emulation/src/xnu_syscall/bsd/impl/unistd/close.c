@@ -28,6 +28,10 @@ long sys_close_nocancel(int fd)
 		return 0;
 	}
 
+	// the descriptor number is free for reuse from here on, so the caller's guard (guarded_open_np and friends)
+	// must not outlive it
+	guard_table_user_clear(fd);
+
 	if (_libkernel_functions && _libkernel_functions->kqueue_close) {
 		if (_libkernel_functions->kqueue_close(fd)) {
 			// this FD belongs to libkqueue and it will take care of closing it

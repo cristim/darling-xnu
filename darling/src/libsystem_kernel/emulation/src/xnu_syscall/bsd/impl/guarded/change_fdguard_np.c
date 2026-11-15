@@ -5,6 +5,7 @@
 #include <sys/errno.h>
 #include <sys/fcntl.h>
 
+#include <darling/emulation/common/guarded/table.h>
 #include <darling/emulation/xnu_syscall/bsd/impl/fcntl/fcntl.h>
 
 // bsd/sys/guarded.h only exposes these to PRIVATE builds; values and masks
@@ -17,17 +18,18 @@
 #define GUARD_REQUIRED GUARD_DUP
 #define GUARD_ALL (GUARD_REQUIRED | GUARD_CLOSE | GUARD_SOCKET_IPC | GUARD_FILEPORT | GUARD_WRITE)
 
-// Darling does not keep per-descriptor guard state for callers, so the guard
-// values are never compared and the EPERM of XNU for a mismatched guard is not
+// The old guard is never compared with the guard the descriptor has (see
+// guard_table_user_check), so the EPERM of XNU for a mismatched guard is not
 // produced. XNU also fails every call whose old guard value is zero: EPERM
-// when the fd is guarded, EINVAL when it is not. Without state the two cannot
-// be told apart, so a zero old guard returns EINVAL and the guarded EPERM is
-// not reproduced. The EINVAL checks that need no guard state run after the
-// F_GETFD that validates the fd, as XNU validates the fd first, and before
-// *fdflagsp is written (XNU writes it before the guard checks; this does not).
-// The mode is read from which guards were passed, as in the examples in
-// bsd/kern/kern_guarded.c: a new guard on an unguarded fd, or no new guard to
-// remove one. Only the fd flag side effects are modelled.
+// when the fd is guarded, EINVAL when it is not. A zero old guard returns EINVAL
+// and the guarded EPERM is not reproduced. The EINVAL checks that need no guard
+// state run after the F_GETFD that validates the fd, as XNU validates the fd
+// first, and before *fdflagsp is written (XNU writes it before the guard checks;
+// this does not). The mode is read from which guards were passed, as in the
+// examples in bsd/kern/kern_guarded.c: a new guard on an unguarded fd, or no new
+// guard to remove one. The fd flag side effects are modelled, and the new guard
+// is recorded (or the old one forgotten) for guarded_close_np and the guarded
+// writes.
 long sys_change_fdguard_np(int fd, const uint64_t* guard, unsigned int guardflags,
 	const uint64_t* nguard, unsigned int nguardflags, int* fdflagsp)
 {
@@ -62,6 +64,12 @@ long sys_change_fdguard_np(int fd, const uint64_t* guard, unsigned int guardflag
 	// guarding forces close-on-exec on; unguarding restores the saved state
 	int cloexec = nguard ? FD_CLOEXEC : (new_flags & FD_CLOEXEC);
 	long rv = sys_fcntl_nocancel(fd, F_SETFD, cloexec);
+	if (rv < 0)
+		return rv;
 
-	return rv < 0 ? rv : 0;
+	if (nguard == NULL) {
+		guard_table_user_clear(fd);
+		return 0;
+	}
+	return guard_table_user_set(fd, *nguard, nguardflags);
 }

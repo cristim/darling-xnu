@@ -15,6 +15,9 @@ typedef struct guard_entry {
 	int fd;
 	guard_flags_t flags;
 	guard_entry_options_t options;
+	// the caller's guard (guarded_open_np and friends); user_attrs is zero when there is none
+	uint64_t user_guard;
+	unsigned int user_attrs;
 } guard_entry_t;
 
 extern void* memcpy(void* dest, const void* src, size_t n);
@@ -44,6 +47,10 @@ static libsimple_lock_t guard_table_lock = LIBSIMPLE_LOCK_INITIALIZER;
 
 // normal search
 static guard_entry_t* guard_table_find_locked(int fd) {
+	if (fd < 0) {
+		return NULL;
+	}
+
 	size_t start_index = fd % MAX_GUARD_COUNT;
 
 	// check the optimal index first, then sequentially until the end of the table
@@ -78,6 +85,10 @@ static guard_entry_t* guard_table_find_locked(int fd) {
 
 // insertion search
 static guard_entry_t* guard_table_find_available_locked(int fd) {
+	if (fd < 0) {
+		return NULL;
+	}
+
 	size_t start_index = fd % MAX_GUARD_COUNT;
 
 	// check the optimal index first, then sequentially until the end of the table
@@ -118,6 +129,8 @@ int guard_table_add(int fd, guard_flags_t flags, guard_entry_options_t* options)
 		if (entry) {
 			entry->fd = fd;
 			entry->flags = flags;
+			entry->user_guard = 0;
+			entry->user_attrs = 0;
 			if (options) {
 				memcpy(&entry->options, options, sizeof(entry->options));
 			} else {
@@ -172,6 +185,8 @@ int guard_table_remove(int fd) {
 	if (entry) {
 		entry->fd = GUARD_ENTRY_DELETED_FD;
 		entry->flags = guard_flag_none;
+		entry->user_guard = 0;
+		entry->user_attrs = 0;
 	} else {
 		result = -ENOENT;
 	}
@@ -195,6 +210,83 @@ int guard_table_check(int fd, guard_flags_t flags) {
 #endif
 }
 
+int guard_table_user_set(int fd, uint64_t guard, unsigned int attrs) {
+#ifdef VARIANT_DYLD
+	return 0;
+#else
+	int result = 0;
+
+	libsimple_lock_lock(&guard_table_lock);
+
+	guard_entry_t* entry = guard_table_find_locked(fd);
+	if (!entry) {
+		entry = guard_table_find_available_locked(fd);
+		if (entry) {
+			entry->fd = fd;
+			entry->flags = guard_flag_none;
+			memset(&entry->options, 0, sizeof(entry->options));
+		}
+	}
+	if (entry) {
+		entry->user_guard = guard;
+		entry->user_attrs = attrs;
+	} else {
+		result = -ENOMEM;
+	}
+
+	libsimple_lock_unlock(&guard_table_lock);
+
+	return result;
+#endif
+}
+
+void guard_table_user_clear(int fd) {
+#ifndef VARIANT_DYLD
+	libsimple_lock_lock(&guard_table_lock);
+
+	guard_entry_t* entry = guard_table_find_locked(fd);
+	if (entry && entry->user_attrs != 0) {
+		entry->user_guard = 0;
+		entry->user_attrs = 0;
+		if (entry->flags == guard_flag_none) {
+			// a deleted slot lengthens every probe past it; the next slot being empty makes this one empty too
+			size_t i = (size_t)(entry - guard_table);
+			entry->fd = guard_table[(i + 1) % MAX_GUARD_COUNT].fd == GUARD_ENTRY_EMPTY_FD ? GUARD_ENTRY_EMPTY_FD : GUARD_ENTRY_DELETED_FD;
+			// and so do the deleted slots right before an empty one
+			if (entry->fd == GUARD_ENTRY_EMPTY_FD) {
+				for (size_t j = (i + MAX_GUARD_COUNT - 1) % MAX_GUARD_COUNT;
+					j != i && guard_table[j].fd == GUARD_ENTRY_DELETED_FD;
+					j = (j + MAX_GUARD_COUNT - 1) % MAX_GUARD_COUNT) {
+					guard_table[j].fd = GUARD_ENTRY_EMPTY_FD;
+				}
+			}
+		}
+	}
+
+	libsimple_lock_unlock(&guard_table_lock);
+#endif
+}
+
+int guard_table_user_check(int fd, uint64_t guard) {
+#ifdef VARIANT_DYLD
+	// no table in dyld: every guard matches
+	return 0;
+#else
+	int result = -ENOENT;
+
+	libsimple_lock_lock(&guard_table_lock);
+
+	guard_entry_t* entry = guard_table_find_locked(fd);
+	if (entry && entry->user_attrs != 0) {
+		result = (entry->user_guard == guard) ? 0 : -EPERM;
+	}
+
+	libsimple_lock_unlock(&guard_table_lock);
+
+	return result;
+#endif
+}
+
 void guard_table_postfork_child(void) {
 #ifndef VARIANT_DYLD
 	// after forking, the lock is invalid in the child; let's reinitialize it
@@ -212,6 +304,8 @@ void guard_table_postfork_child(void) {
 			}
 			entry->fd = GUARD_ENTRY_DELETED_FD;
 			entry->flags = guard_flag_none;
+			entry->user_guard = 0;
+			entry->user_attrs = 0;
 		}
 	}
 #endif

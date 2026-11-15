@@ -25,7 +25,11 @@ program = <<~C
   #{guard_args}
   static long sys_open(const char *path, int flags, unsigned int mode) { (void)path; (void)flags; (void)mode; return 3; }
   static long sys_close(int fd) { (void)fd; return 0; }
+  static long sys_close_nocancel(int fd) { (void)fd; return 0; }
   static long sys_kqueue(void) { return 4; }
+  // the guard table and the guard lookup are covered by their own tests; only the guard read is real here
+  static int guard_table_user_set(int fd, uint64_t guard, unsigned int attrs) { (void)fd; (void)guard; (void)attrs; return 0; }
+  static long guarded_fd_lookup(int fd, const uint64_t* guard) { (void)fd; return guard_args_readable(guard); }
   #{bodies.join("\n")}
   int main(void) {
       uint64_t *guard = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
