@@ -2,6 +2,7 @@
 #include <mach/mach_traps.h>
 #include <mach/thread_switch.h>
 #include <mach/vm_statistics.h>
+#include <mach/vm_purgable.h>
 #include <mach/kern_return.h>
 #include <sys/mman.h>
 #include <fcntl.h>
@@ -279,6 +280,43 @@ kern_return_t _kernelrpc_mach_vm_deallocate_trap_impl(
 			return KERN_FAILURE;
 
 		return KERN_SUCCESS;
+	}
+}
+
+// Darling never reclaims purgeable memory, so every purgeable region stays VM_PURGABLE_NONVOLATILE and is never
+// VM_PURGABLE_EMPTY. XNU osfmk/vm/vm_user.c (_kernelrpc_mach_vm_purgable_control_trap): only the caller's own task is
+// served here, anything else returns MACH_SEND_INVALID_DEST so libsyscall falls back to the MIG routine.
+// GUESS: XNU rejects non-purgeable memory with KERN_INVALID_ARGUMENT; the address is not checked here.
+// GUESS: SET_STATE reports the previous state; a volatile-then-nonvolatile sequence reports NONVOLATILE, not VOLATILE.
+kern_return_t _kernelrpc_mach_vm_purgable_control_trap_impl(
+				mach_port_name_t target,
+				mach_vm_offset_t address,
+				vm_purgable_t control,
+				int* state
+)
+{
+	if (target != 0 && target != mach_task_self())
+		return MACH_SEND_INVALID_DEST;
+
+	if (state == NULL)
+		return KERN_INVALID_ARGUMENT;
+
+	switch (control)
+	{
+		case VM_PURGABLE_GET_STATE:
+			*state = VM_PURGABLE_NONVOLATILE;
+			return KERN_SUCCESS;
+		case VM_PURGABLE_SET_STATE:
+			if (*state & ~VM_PURGABLE_ALL_MASKS)
+				return KERN_INVALID_ARGUMENT;
+			if ((*state & VM_PURGABLE_STATE_MASK) > VM_PURGABLE_STATE_MAX)
+				return KERN_INVALID_ARGUMENT;
+			*state = VM_PURGABLE_NONVOLATILE;
+			return KERN_SUCCESS;
+		case VM_PURGABLE_PURGE_ALL:
+			return KERN_SUCCESS;
+		default:
+			return KERN_INVALID_ARGUMENT;
 	}
 }
 

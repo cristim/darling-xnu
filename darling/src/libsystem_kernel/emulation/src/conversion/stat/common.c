@@ -68,7 +68,29 @@ void stat_linux_to_bsd64(const struct linux_stat* lstat, darling_stat64_t* stat)
 	stat->st_flags = 0;
 }
 
-static unsigned int statfs_flags_linux_to_bsd(long linux_flags)
+// MNT_LOCAL (bsd/sys/mount.h): "filesystem is stored locally". SQLite (os_unix.c autoProxy) switches every database on a
+// non-MNT_LOCAL filesystem to proxy locking, whose dotlock directories survive a killed process. Linux has no such flag,
+// so derive it from the filesystem magic (linux/magic.h): network filesystems are remote, everything else is local.
+// GUESS: FUSE mounts are reported local.
+static int linux_fs_is_remote(long f_type)
+{
+	switch ((unsigned long)f_type & 0xffffffffUL)
+	{
+		case 0x6969:     // NFS_SUPER_MAGIC
+		case 0x517B:     // SMB_SUPER_MAGIC
+		case 0xFE534D42: // SMB2_MAGIC_NUMBER
+		case 0xFF534D42: // CIFS_MAGIC_NUMBER
+		case 0x73757245: // CODA_SUPER_MAGIC
+		case 0x5346414F: // AFS_SUPER_MAGIC
+		case 0x00C36400: // CEPH_SUPER_MAGIC
+		case 0x01021997: // V9FS_MAGIC
+			return 1;
+		default:
+			return 0;
+	}
+}
+
+static unsigned int statfs_flags_linux_to_bsd(long linux_flags, long f_type)
 {
 	unsigned int bsd_flags = 0;
 
@@ -83,6 +105,7 @@ static unsigned int statfs_flags_linux_to_bsd(long linux_flags)
 	#define BSD_MNT_NOEXEC       0x00000004
 	#define BSD_MNT_NOSUID       0x00000008
 	#define BSD_MNT_NODEV        0x00000010
+	#define BSD_MNT_LOCAL        0x00001000
 
 	if (linux_flags & LINUX_ST_RDONLY)
 		bsd_flags |= BSD_MNT_RDONLY;
@@ -94,6 +117,8 @@ static unsigned int statfs_flags_linux_to_bsd(long linux_flags)
 		bsd_flags |= BSD_MNT_NOSUID;
 	if (linux_flags & LINUX_ST_NODEV)
 		bsd_flags |= BSD_MNT_NODEV;
+	if (!linux_fs_is_remote(f_type))
+		bsd_flags |= BSD_MNT_LOCAL;
 
 	return bsd_flags;
 }
@@ -108,7 +133,7 @@ void statfs_linux_to_bsd(const struct linux_statfs64* lstat, struct bsd_statfs* 
 	stat->f_files = lstat->f_files;
 	stat->f_ffree = lstat->f_ffree;
 	stat->f_fsid = lstat->f_fsid;
-	stat->f_flags = statfs_flags_linux_to_bsd(lstat->f_flags);
+	stat->f_flags = statfs_flags_linux_to_bsd(lstat->f_flags, lstat->f_type);
 }
 
 void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs64* stat)
@@ -121,5 +146,5 @@ void statfs_linux_to_bsd64(const struct linux_statfs64* lstat, struct bsd_statfs
 	stat->f_files = lstat->f_files;
 	stat->f_ffree = lstat->f_ffree;
 	stat->f_fsid = lstat->f_fsid;
-	stat->f_flags = statfs_flags_linux_to_bsd(lstat->f_flags);
+	stat->f_flags = statfs_flags_linux_to_bsd(lstat->f_flags, lstat->f_type);
 }
